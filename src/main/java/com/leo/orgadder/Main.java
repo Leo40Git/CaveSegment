@@ -65,12 +65,12 @@ public class Main {
 		}
 		System.exit(0);
 	}
-	
+
 	private static Vector<String> orgNames;
 
 	private static final int ONT_RVA = 0x4981E8;
 	private static final int[] ONT_REFS = { 0x420F17, 0x420F60 };
-	
+
 	private static void initOrgNames(Vector<byte[]> orgNamesRaw) {
 		final int orgNameCount = orgNamesRaw.size();
 		orgNames = new Vector<>(orgNameCount);
@@ -84,8 +84,66 @@ public class Main {
 		}
 	}
 
-	private static void setupONTSection() {
+	private static int writeONTSection() {
+		final int orgCount = orgNames.size();
+		int ontSize = orgCount * 4;
+		int orgNameSize = 0;
+		Vector<byte[]> orgNamesRaw = new Vector<>(orgCount);
+		for (int i = 0; i < orgCount; i++) {
+			String src = orgNames.get(i);
+			int dstLen = src.length();
+			if (dstLen % 4 == 0)
+				dstLen += 4;
+			else
+				dstLen = (dstLen / 4 + 1) * 4;
+			byte[] dst = new byte[dstLen];
+			byte[] srcDat = src.getBytes(Charset.forName("Windows-1252"));
+			System.arraycopy(srcDat, 0, dst, 0, srcDat.length);
+			orgNameSize += dstLen;
+			orgNamesRaw.add(i, dst);
+		}
+		byte[] data = new byte[ontSize + 4 + orgNameSize];
+		// data size: pointers to names + 4 bytes to mark end of pointers + the names
+		// themselves
+		int usedBytes = 0;
+		for (int i = 0; i < orgNamesRaw.size(); i++) {
+			byte[] name = orgNamesRaw.get(i);
+			System.arraycopy(name, 0, data, ontSize + 4 + usedBytes, name.length);
+			usedBytes += name.length;
+		}
+		// remove all filler sections (as you do, before adding a new section)
 		removeFillerSections();
+		PEFile.Section ontSec = null;
+		int ontSecId = peData.getSectionIndexByTag(".ont");
+		if (ontSecId == -1)
+			// ONT section does not yet exist, create new
+			ontSec = new PEFile.Section();
+		else
+			// ONT section already exists, remove it for later reinstall
+			ontSec = peData.sections.remove(ontSecId);
+		ontSec.encodeTag(".ont");
+		ontSec.rawData = data;
+		ontSec.virtualSize = data.length;
+		ontSec.metaLinearize = false;
+		ontSec.characteristics = PEFile.SECCHR_INITIALIZED_DATA | PEFile.SECCHR_READ;
+		peData.malloc(ontSec);
+		// reinstall those filler sections
+		fixVirtualLayoutGaps();
+		// now that we have the .onl segment's RVA, we can fill the start of data with
+		// the pointers to the names
+		ByteBuffer dataBuf = ByteBuffer.wrap(data);
+		dataBuf.order(ByteOrder.LITTLE_ENDIAN);
+		final int ontNewRVA = ontSec.virtualAddrRelative + 0x400000;
+		int nameRVA = ontNewRVA + ontSize + 4;
+		for (int i = 0; i < orgNamesRaw.size(); i++) {
+			dataBuf.putInt(nameRVA);
+			nameRVA += orgNamesRaw.get(i).length;
+		}
+		// return the ORG name table's new RVA, for setupONTSection
+		return ontNewRVA;
+	}
+
+	private static void setupONTSection() {
 		ByteBuffer listBuf = peData.setupRVAPoint(ONT_RVA - 0x400000);
 		int ontSize = 0;
 		Vector<byte[]> orgNamesRaw = new Vector<>();
@@ -103,14 +161,13 @@ public class Main {
 				ByteBuffer cBuf = read(orgAddr++, 1);
 				byte c = cBuf.get(0);
 				if (c == 0) {
-					int oldIndex = index;
-					if (index % 4 == 0) {
+					// NAME LENGTH RULES:
+					// 1. always multiples of 4
+					// 2. if length is divisible by 4, add 4
+					if (index % 4 == 0)
 						index += 4;
-					} else {
+					else
 						index = (index / 4 + 1) * 4;
-					}
-					for (int i = oldIndex; i < index; i++)
-						orgNameTmp[i] = 0;
 					break;
 				}
 				orgNameTmp[index++] = toUpperChar(c);
@@ -122,42 +179,18 @@ public class Main {
 		}
 		System.out.println("ORG name pointer table size is " + int2Hex(ontSize));
 		System.out.println("Read " + orgNamesRaw.size() + " names for a total of " + int2Hex(orgNameSize) + " bytes");
-		byte[] data = new byte[ontSize + 4 + orgNameSize];
-		// data size: pointers to names + 4 bytes to mark end of pointers + the names
-		// themselves
-		int usedBytes = 0;
-		for (int i = 0; i < orgNamesRaw.size(); i++) {
-			byte[] name = orgNamesRaw.get(i);
-			System.arraycopy(name, 0, data, ontSize + 4 + usedBytes, name.length);
-			usedBytes += name.length;
-		}
-		PEFile.Section ontSec = new PEFile.Section();
-		ontSec.encodeTag(".ont");
-		ontSec.rawData = data;
-		ontSec.virtualSize = data.length;
-		ontSec.metaLinearize = false;
-		ontSec.characteristics = PEFile.SECCHR_INITIALIZED_DATA | PEFile.SECCHR_READ;
-		peData.malloc(ontSec);
-		// now that we have the .onl segment's RVA, we can fill the start of data with
-		// the pointers to the names
-		ByteBuffer dataBuf = ByteBuffer.wrap(data);
-		dataBuf.order(ByteOrder.LITTLE_ENDIAN);
-		final int onlNewRVA = ontSec.virtualAddrRelative + 0x400000;
-		int nameRVA = onlNewRVA + ontSize + 4;
-		for (int i = 0; i < orgNamesRaw.size(); i++) {
-			dataBuf.putInt(nameRVA);
-			nameRVA += orgNamesRaw.get(i).length;
-		}
+		// now that we're read everything, initialize orgNames...
+		initOrgNames(orgNamesRaw);
+		// ...and then write the ONT section...
+		int ontNewRVA = writeONTSection();
+		// ...and finally, patch references
 		ByteBuffer buf = ByteBuffer.allocate(4);
 		buf.order(ByteOrder.LITTLE_ENDIAN);
-		buf.putInt(0, onlNewRVA);
+		buf.putInt(0, ontNewRVA);
 		for (int ref : ONT_REFS)
 			patch(buf, ref);
-		fixVirtualLayoutGaps();
-		// now that we're done with everything, initialize orgNames
-		initOrgNames(orgNamesRaw);
 	}
-	
+
 	private static void readONTSection() {
 		int ontSecID = peData.getSectionIndexByTag(".ont");
 		if (ontSecID == -1) {
@@ -177,6 +210,8 @@ public class Main {
 			byte[] orgNameTmp = new byte[0x80];
 			int index = 0;
 			while (true) {
+				// since we don't have to preserve null characters here, we can just stop
+				// reading when we encounter one
 				ByteBuffer cBuf = read(orgAddr++, 1);
 				byte c = cBuf.get(0);
 				if (c == 0)
@@ -189,13 +224,13 @@ public class Main {
 		}
 		initOrgNames(orgNamesRaw);
 	}
-	
+
 	private static char toUpperChar(char c) {
 		if (c >= 'a' && c <= 'z')
 			c += 'A' - 'a';
 		return c;
 	}
-	
+
 	private static byte toUpperChar(byte c) {
 		return (byte) toUpperChar((char) c);
 	}
