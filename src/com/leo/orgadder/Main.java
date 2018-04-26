@@ -1,4 +1,4 @@
-package com.leo.cseg;
+package com.leo.orgadder;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
+import java.nio.charset.Charset;
 import java.util.Comparator;
 import java.util.LinkedList;
 import java.util.Vector;
@@ -50,12 +51,10 @@ public class Main {
 					System.out.println(s.decodeTag() + ": " + int2Hex(0x400000 + s.virtualAddrRelative) + " - "
 							+ int2Hex(0x400000 + s.virtualAddrRelative + Math.max(s.virtualSize, s.rawData.length)));
 				}
-				/*
-				addEntityListSegment();
-				JOptionPane.showMessageDialog(null, "Done .npt");
-				*/
-				addMusicListSegment();
-				JOptionPane.showMessageDialog(null, "Done .onl");
+				readONTSection();
+				for (int i = 0; i < orgNames.size(); i++)
+					System.out.println(i + " - " + orgNames.get(i));
+				JOptionPane.showMessageDialog(null, "Done .ont");
 				byte[] b = peData.write();
 				FileOutputStream oStream = new FileOutputStream(selected);
 				oStream.write(b);
@@ -66,47 +65,30 @@ public class Main {
 		}
 		System.exit(0);
 	}
+	
+	private static Vector<String> orgNames;
 
-	private static final int NPT_RVA = 0x498548;
-	private static final int[] NPT_REFS = new int[] { 0x46FA65, 0x46FCF2, 0x46FF78 };
-
-	@SuppressWarnings("unused")
-	private static void addEntityListSegment() {
-		if (peData.getSectionIndexByTag(".npt") != -1)
-			return;
-		removeFillerSections();
-		int nptSize = 0;
-		ByteBuffer listBuf = peData.setupRVAPoint(NPT_RVA - 0x400000);
-		while (listBuf.getInt() >= 0x400000)
-			nptSize += 4;
-		listBuf.flip();
-		byte[] list = new byte[nptSize];
-		listBuf.get(list);
-		PEFile.Section nptSection = new PEFile.Section();
-		nptSection.encodeTag(".npt");
-		nptSection.rawData = list;
-		nptSection.virtualSize = list.length;
-		nptSection.metaLinearize = false;
-		nptSection.characteristics = PEFile.SECCHR_INITIALIZED_DATA | PEFile.SECCHR_READ;
-		peData.malloc(nptSection);
-		ByteBuffer buf = ByteBuffer.allocate(4);
-		buf.order(ByteOrder.LITTLE_ENDIAN);
-		buf.putInt(0, nptSection.virtualAddrRelative + 0x400000);
-		for (int ref : NPT_REFS)
-			patch(buf, ref);
-		fixVirtualLayoutGaps();
+	private static final int ONT_RVA = 0x4981E8;
+	private static final int[] ONT_REFS = { 0x420F17, 0x420F60 };
+	
+	private static void initOrgNames(Vector<byte[]> orgNamesRaw) {
+		final int orgNameCount = orgNamesRaw.size();
+		orgNames = new Vector<>(orgNameCount);
+		for (int i = 0; i < orgNameCount; i++) {
+			byte[] orgName = orgNamesRaw.get(i);
+			int maxL = 0;
+			for (int j = 0; j < orgName.length; j++)
+				if (orgName[j] != 0)
+					maxL = j + 1;
+			orgNames.add(i, new String(orgName, 0, maxL, Charset.forName("Windows-1252")));
+		}
 	}
 
-	private static final int ONL_RVA = 0x4981E8;
-	private static final int[] ONL_REFS = { 0x420F17, 0x420F60 };
-
-	private static void addMusicListSegment() {
-		if (peData.getSectionIndexByTag(".onl") != -1)
-			return;
+	private static void setupONTSection() {
 		removeFillerSections();
-		ByteBuffer listBuf = peData.setupRVAPoint(ONL_RVA - 0x400000);
-		int onlSize = 0;
-		Vector<byte[]> orgNames = new Vector<>();
+		ByteBuffer listBuf = peData.setupRVAPoint(ONT_RVA - 0x400000);
+		int ontSize = 0;
+		Vector<byte[]> orgNamesRaw = new Vector<>();
 		int orgNameSize = 0;
 		while (true) {
 			int orgAddr = listBuf.getInt();
@@ -114,58 +96,108 @@ public class Main {
 				// if next address is before image base, it's probably not an address
 				// i.e we're overflowing and need to stop
 				break;
-			onlSize += 4;
+			ontSize += 4;
 			byte[] orgNameTmp = new byte[0x80];
 			int index = 0;
-			boolean gotTerm = false;
 			while (true) {
 				ByteBuffer cBuf = read(orgAddr++, 1);
 				byte c = cBuf.get(0);
-				if (gotTerm && c != 0)
+				if (c == 0) {
+					int oldIndex = index;
+					if (index % 4 == 0) {
+						index += 4;
+					} else {
+						index = (index / 4 + 1) * 4;
+					}
+					for (int i = oldIndex; i < index; i++)
+						orgNameTmp[i] = 0;
 					break;
-				else if (c == 0)
-					gotTerm = true;
-				orgNameTmp[index++] = c;
+				}
+				orgNameTmp[index++] = toUpperChar(c);
 			}
 			byte[] orgName = new byte[index];
 			System.arraycopy(orgNameTmp, 0, orgName, 0, index);
 			orgNameSize += orgName.length;
-			orgNames.add(orgName);
+			orgNamesRaw.add(orgName);
 		}
-		System.out.println("ORG name pointer table size is " + int2Hex(onlSize));
-		System.out.println("Read " + orgNames.size() + " names for a total of " + int2Hex(orgNameSize) + " bytes");
-		byte[] data = new byte[onlSize + 4 + orgNameSize];
+		System.out.println("ORG name pointer table size is " + int2Hex(ontSize));
+		System.out.println("Read " + orgNamesRaw.size() + " names for a total of " + int2Hex(orgNameSize) + " bytes");
+		byte[] data = new byte[ontSize + 4 + orgNameSize];
 		// data size: pointers to names + 4 bytes to mark end of pointers + the names
 		// themselves
 		int usedBytes = 0;
-		for (int i = 0; i < orgNames.size(); i++) {
-			byte[] name = orgNames.get(i);
-			System.arraycopy(name, 0, data, onlSize + 4 + usedBytes, name.length);
+		for (int i = 0; i < orgNamesRaw.size(); i++) {
+			byte[] name = orgNamesRaw.get(i);
+			System.arraycopy(name, 0, data, ontSize + 4 + usedBytes, name.length);
 			usedBytes += name.length;
 		}
-		PEFile.Section onlSection = new PEFile.Section();
-		onlSection.encodeTag(".onl");
-		onlSection.rawData = data;
-		onlSection.virtualSize = data.length;
-		onlSection.metaLinearize = false;
-		onlSection.characteristics = PEFile.SECCHR_INITIALIZED_DATA | PEFile.SECCHR_READ;
-		peData.malloc(onlSection);
+		PEFile.Section ontSec = new PEFile.Section();
+		ontSec.encodeTag(".ont");
+		ontSec.rawData = data;
+		ontSec.virtualSize = data.length;
+		ontSec.metaLinearize = false;
+		ontSec.characteristics = PEFile.SECCHR_INITIALIZED_DATA | PEFile.SECCHR_READ;
+		peData.malloc(ontSec);
 		// now that we have the .onl segment's RVA, we can fill the start of data with
 		// the pointers to the names
 		ByteBuffer dataBuf = ByteBuffer.wrap(data);
 		dataBuf.order(ByteOrder.LITTLE_ENDIAN);
-		final int onlNewRVA = onlSection.virtualAddrRelative + 0x400000;
-		int nameRVA = onlNewRVA + onlSize + 4;
-		for (int i = 0; i < orgNames.size(); i++) {
+		final int onlNewRVA = ontSec.virtualAddrRelative + 0x400000;
+		int nameRVA = onlNewRVA + ontSize + 4;
+		for (int i = 0; i < orgNamesRaw.size(); i++) {
 			dataBuf.putInt(nameRVA);
-			nameRVA += orgNames.get(i).length;
+			nameRVA += orgNamesRaw.get(i).length;
 		}
 		ByteBuffer buf = ByteBuffer.allocate(4);
 		buf.order(ByteOrder.LITTLE_ENDIAN);
 		buf.putInt(0, onlNewRVA);
-		for (int ref : ONL_REFS)
+		for (int ref : ONT_REFS)
 			patch(buf, ref);
 		fixVirtualLayoutGaps();
+		// now that we're done with everything, initialize orgNames
+		initOrgNames(orgNamesRaw);
+	}
+	
+	private static void readONTSection() {
+		int ontSecID = peData.getSectionIndexByTag(".ont");
+		if (ontSecID == -1) {
+			setupONTSection();
+			return;
+		}
+		PEFile.Section ontSec = peData.sections.get(ontSecID);
+		ByteBuffer listBuf = ByteBuffer.wrap(ontSec.rawData);
+		listBuf.order(ByteOrder.LITTLE_ENDIAN);
+		Vector<byte[]> orgNamesRaw = new Vector<>();
+		while (true) {
+			int orgAddr = listBuf.getInt();
+			if (orgAddr < 0x400000)
+				// if next address is before image base, it's probably not an address
+				// i.e we're overflowing and need to stop
+				break;
+			byte[] orgNameTmp = new byte[0x80];
+			int index = 0;
+			while (true) {
+				ByteBuffer cBuf = read(orgAddr++, 1);
+				byte c = cBuf.get(0);
+				if (c == 0)
+					break;
+				orgNameTmp[index++] = toUpperChar(c);
+			}
+			byte[] orgName = new byte[index];
+			System.arraycopy(orgNameTmp, 0, orgName, 0, index);
+			orgNamesRaw.add(orgName);
+		}
+		initOrgNames(orgNamesRaw);
+	}
+	
+	private static char toUpperChar(char c) {
+		if (c >= 'a' && c <= 'z')
+			c += 'A' - 'a';
+		return c;
+	}
+	
+	private static byte toUpperChar(byte c) {
+		return (byte) toUpperChar((char) c);
 	}
 
 	private static final Comparator<PEFile.Section> sortByRVA = new Comparator<PEFile.Section>() {
