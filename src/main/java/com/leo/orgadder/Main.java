@@ -1,382 +1,263 @@
 package com.leo.orgadder;
 
+import java.awt.BorderLayout;
+import java.awt.Desktop;
+import java.awt.Dimension;
+import java.awt.GraphicsEnvironment;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
+import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
-import java.nio.charset.Charset;
-import java.util.Comparator;
-import java.util.LinkedList;
-import java.util.Vector;
+import java.nio.channels.ReadableByteChannel;
 
-import javax.swing.JFileChooser;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
 import javax.swing.JOptionPane;
-import javax.swing.filechooser.FileNameExtensionFilter;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
+import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
+import javax.swing.UnsupportedLookAndFeelException;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class Main {
 
-	private static PEFile peData;
+	public static final Logger LOGGER = LogManager.getLogger("OrgAdder");
 
-	public static void main(String[] args) {
-		JFileChooser fc = new JFileChooser();
-		FileNameExtensionFilter filter = new FileNameExtensionFilter("Cave Story Executable", "exe");
-		fc.setFileFilter(filter);
-		fc.setCurrentDirectory(new File(System.getProperty("user.dir")));
-		int retVal = fc.showOpenDialog(null);
-		if (retVal == JFileChooser.APPROVE_OPTION) {
-			File selected = fc.getSelectedFile();
-			try {
-				FileInputStream inStream = new FileInputStream(selected);
-				FileChannel chan = inStream.getChannel();
-				long l = chan.size();
-				if (l > 0x7FFFFFFF) {
-					inStream.close();
-					throw new IOException("Too big!");
-				}
-				ByteBuffer bb = ByteBuffer.allocate((int) l);
-				if (chan.read(bb) != l) {
-					inStream.close();
-					throw new IOException("Didn't read whole file.");
-				}
-				inStream.close();
-				peData = new PEFile(bb, 0x1000);
-				// DEBUG: dump section ranges
-				// sort the sections so we go by RVA
-				LinkedList<PEFile.Section> sectionsSorted = new LinkedList<PEFile.Section>(peData.sections);
-				sectionsSorted.sort(sortByRVA);
-				for (PEFile.Section s : sectionsSorted) {
-					System.out.println(s.decodeTag() + ": " + int2Hex(0x400000 + s.virtualAddrRelative) + " - "
-							+ int2Hex(0x400000 + s.virtualAddrRelative + Math.max(s.virtualSize, s.rawData.length)));
-				}
-				readONTSection();
-				for (int i = 0; i < orgNames.size(); i++)
-					System.out.println(i + " - " + orgNames.get(i));
-				JOptionPane.showMessageDialog(null, "Done .ont");
-				byte[] b = peData.write();
-				FileOutputStream oStream = new FileOutputStream(selected);
-				oStream.write(b);
-				oStream.close();
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
-		}
-		System.exit(0);
-	}
+	public static final Version VERSION = new Version("1.0");
+	public static final String UPDATE_CHECK_SITE = "https://raw.githubusercontent.com/Leo40Git/OrgAdder/master/.version";
+	public static final String DOWNLOAD_SITE = "https://github.com/Leo40Git/OrgAdder/releases/latest/";
+	public static final String ISSUES_SITE = "https://github.com/Leo40Git/OrgAdder/issues";
 
-	private static Vector<String> orgNames;
-
-	private static final int ONT_RVA = 0x4981E8;
-	private static final int[] ONT_REFS = { 0x420F17, 0x420F60 };
-
-	private static void initOrgNames(Vector<byte[]> orgNamesRaw) {
-		final int orgNameCount = orgNamesRaw.size();
-		orgNames = new Vector<>(orgNameCount);
-		for (int i = 0; i < orgNameCount; i++) {
-			byte[] orgName = orgNamesRaw.get(i);
-			int maxL = 0;
-			for (int j = 0; j < orgName.length; j++)
-				if (orgName[j] != 0)
-					maxL = j + 1;
-			orgNames.add(i, new String(orgName, 0, maxL, Charset.forName("Windows-1252")));
-		}
-	}
-
-	private static int writeONTSection() {
-		final int orgCount = orgNames.size();
-		int ontSize = orgCount * 4;
-		int orgNameSize = 0;
-		Vector<byte[]> orgNamesRaw = new Vector<>(orgCount);
-		for (int i = 0; i < orgCount; i++) {
-			String src = orgNames.get(i);
-			int dstLen = src.length();
-			if (dstLen % 4 == 0)
-				dstLen += 4;
-			else
-				dstLen = (dstLen / 4 + 1) * 4;
-			byte[] dst = new byte[dstLen];
-			byte[] srcDat = src.getBytes(Charset.forName("Windows-1252"));
-			System.arraycopy(srcDat, 0, dst, 0, srcDat.length);
-			orgNameSize += dstLen;
-			orgNamesRaw.add(i, dst);
-		}
-		byte[] data = new byte[ontSize + 4 + orgNameSize];
-		// data size: pointers to names + 4 bytes to mark end of pointers + the names
-		// themselves
-		int usedBytes = 0;
-		for (int i = 0; i < orgNamesRaw.size(); i++) {
-			byte[] name = orgNamesRaw.get(i);
-			System.arraycopy(name, 0, data, ontSize + 4 + usedBytes, name.length);
-			usedBytes += name.length;
-		}
-		// remove all filler sections (as you do, before adding a new section)
-		removeFillerSections();
-		PEFile.Section ontSec = null;
-		int ontSecId = peData.getSectionIndexByTag(".ont");
-		if (ontSecId == -1)
-			// ONT section does not yet exist, create new
-			ontSec = new PEFile.Section();
-		else
-			// ONT section already exists, remove it for later reinstall
-			ontSec = peData.sections.remove(ontSecId);
-		ontSec.encodeTag(".ont");
-		ontSec.rawData = data;
-		ontSec.virtualSize = data.length;
-		ontSec.metaLinearize = false;
-		ontSec.characteristics = PEFile.SECCHR_INITIALIZED_DATA | PEFile.SECCHR_READ;
-		peData.malloc(ontSec);
-		// reinstall those filler sections
-		fixVirtualLayoutGaps();
-		// now that we have the .onl segment's RVA, we can fill the start of data with
-		// the pointers to the names
-		ByteBuffer dataBuf = ByteBuffer.wrap(data);
-		dataBuf.order(ByteOrder.LITTLE_ENDIAN);
-		final int ontNewRVA = ontSec.virtualAddrRelative + 0x400000;
-		int nameRVA = ontNewRVA + ontSize + 4;
-		for (int i = 0; i < orgNamesRaw.size(); i++) {
-			dataBuf.putInt(nameRVA);
-			nameRVA += orgNamesRaw.get(i).length;
-		}
-		// return the ORG name table's new RVA, for setupONTSection
-		return ontNewRVA;
-	}
-
-	private static void setupONTSection() {
-		ByteBuffer listBuf = peData.setupRVAPoint(ONT_RVA - 0x400000);
-		int ontSize = 0;
-		Vector<byte[]> orgNamesRaw = new Vector<>();
-		int orgNameSize = 0;
-		while (true) {
-			int orgAddr = listBuf.getInt();
-			if (orgAddr < 0x400000)
-				// if next address is before image base, it's probably not an address
-				// i.e we're overflowing and need to stop
-				break;
-			ontSize += 4;
-			byte[] orgNameTmp = new byte[0x80];
-			int index = 0;
-			while (true) {
-				ByteBuffer cBuf = read(orgAddr++, 1);
-				byte c = cBuf.get(0);
-				if (c == 0) {
-					// NAME LENGTH RULES:
-					// 1. always multiples of 4
-					// 2. if length is divisible by 4, add 4
-					if (index % 4 == 0)
-						index += 4;
-					else
-						index = (index / 4 + 1) * 4;
-					break;
-				}
-				orgNameTmp[index++] = toUpperChar(c);
-			}
-			byte[] orgName = new byte[index];
-			System.arraycopy(orgNameTmp, 0, orgName, 0, index);
-			orgNameSize += orgName.length;
-			orgNamesRaw.add(orgName);
-		}
-		System.out.println("ORG name pointer table size is " + int2Hex(ontSize));
-		System.out.println("Read " + orgNamesRaw.size() + " names for a total of " + int2Hex(orgNameSize) + " bytes");
-		// now that we're read everything, initialize orgNames...
-		initOrgNames(orgNamesRaw);
-		// ...and then write the ONT section...
-		int ontNewRVA = writeONTSection();
-		// ...and finally, patch references
-		ByteBuffer buf = ByteBuffer.allocate(4);
-		buf.order(ByteOrder.LITTLE_ENDIAN);
-		buf.putInt(0, ontNewRVA);
-		for (int ref : ONT_REFS)
-			patch(buf, ref);
-	}
-
-	private static void readONTSection() {
-		int ontSecID = peData.getSectionIndexByTag(".ont");
-		if (ontSecID == -1) {
-			setupONTSection();
-			return;
-		}
-		PEFile.Section ontSec = peData.sections.get(ontSecID);
-		ByteBuffer listBuf = ByteBuffer.wrap(ontSec.rawData);
-		listBuf.order(ByteOrder.LITTLE_ENDIAN);
-		Vector<byte[]> orgNamesRaw = new Vector<>();
-		while (true) {
-			int orgAddr = listBuf.getInt();
-			if (orgAddr < 0x400000)
-				// if next address is before image base, it's probably not an address
-				// i.e we're overflowing and need to stop
-				break;
-			byte[] orgNameTmp = new byte[0x80];
-			int index = 0;
-			while (true) {
-				// since we don't have to preserve null characters here, we can just stop
-				// reading when we encounter one
-				ByteBuffer cBuf = read(orgAddr++, 1);
-				byte c = cBuf.get(0);
-				if (c == 0)
-					break;
-				orgNameTmp[index++] = toUpperChar(c);
-			}
-			byte[] orgName = new byte[index];
-			System.arraycopy(orgNameTmp, 0, orgName, 0, index);
-			orgNamesRaw.add(orgName);
-		}
-		initOrgNames(orgNamesRaw);
-	}
-
-	private static char toUpperChar(char c) {
-		if (c >= 'a' && c <= 'z')
-			c += 'A' - 'a';
-		return c;
-	}
-
-	private static byte toUpperChar(byte c) {
-		return (byte) toUpperChar((char) c);
-	}
-
-	private static final Comparator<PEFile.Section> sortByRVA = new Comparator<PEFile.Section>() {
+	static class ConfirmCloseWindowListener extends WindowAdapter {
 
 		@Override
-		public int compare(PEFile.Section o1, PEFile.Section o2) {
-			int rva1 = PEFile.uCompare(o1.virtualAddrRelative);
-			int rva2 = PEFile.uCompare(o2.virtualAddrRelative);
-			if (rva1 < rva2)
-				return -1;
-			if (rva1 > rva2)
-				return 1;
-			return 0;
-		}
-
-	};
-
-	private static String getFillerSectionTag(int flrNum) {
-		String flrNumTag = Integer.toHexString(flrNum).toUpperCase();
-		while (flrNumTag.length() < 4)
-			flrNumTag = "0" + flrNumTag;
-		if (flrNumTag.length() > 4)
-			flrNumTag = flrNumTag.substring(0, 4);
-		return ".flr" + flrNumTag;
-	}
-
-	private static boolean isFillerSection(PEFile.Section s) {
-		String sTag = s.decodeTag();
-		if (sTag.length() == 8 && sTag.startsWith(".flr")) {
-			try {
-				Integer.parseUnsignedInt(sTag.substring(4), 16);
-			} catch (NumberFormatException e) {
-				return false;
-			}
-			return (s.characteristics & PEFile.SECCHR_UNINITIALIZED_DATA) != 0;
-		}
-		return false;
-	}
-
-	private static void removeFillerSections() {
-		LinkedList<PEFile.Section> secsToRem = new LinkedList<PEFile.Section>();
-		for (PEFile.Section s : peData.sections) {
-			if (isFillerSection(s))
-				secsToRem.add(s);
-		}
-		peData.sections.removeAll(secsToRem);
-	}
-
-	private static void mallocFiller(int num, int addr, int size) {
-		PEFile.Section filler = new PEFile.Section();
-		filler.encodeTag(getFillerSectionTag(num));
-		filler.virtualAddrRelative = addr;
-		filler.virtualSize = size;
-		filler.characteristics = PEFile.SECCHR_UNINITIALIZED_DATA | PEFile.SECCHR_READ | PEFile.SECCHR_WRITE;
-		peData.malloc(filler);
-	}
-
-	// NOTE: I recommend invoking removeFillerSections before this
-	private static void fixVirtualLayoutGaps() {
-		final int sectionAlignment = peData.getOptionalHeaderInt(0x20);
-		// sort the sections so we go by RVA
-		LinkedList<PEFile.Section> sectionsSorted = new LinkedList<PEFile.Section>(peData.sections);
-		sectionsSorted.sort(sortByRVA);
-		// first romp to get first free filler section number
-		int flrNum = 0;
-		for (PEFile.Section s : sectionsSorted) {
-			if (!isFillerSection(s))
-				continue;
-			String segNumStr = s.decodeTag().substring(4);
-			int segNum = 0;
-			try {
-				segNum = Integer.parseUnsignedInt(segNumStr, 16);
-			} catch (NumberFormatException e) {
-				// last 4 characters are not a valid hex number
-				// not a filler segment, outta here!
-				continue;
-			}
-			if (flrNum < segNum)
-				flrNum = segNum;
-		}
-		flrNum++;
-		int lastAddress = 0;
-		String lastSeg = null;
-		// second romp, this time it's personal
-		// if a section's RVA does not equal lastAddress, that means there's a gap in
-		// the virtual layout
-		// for some reason Windows 10 and apparently *only* Windows 10 hates virtual
-		// layout gaps
-		// so we plug the gaps up using uninitialized filler sections (.flrXXXX)
-		for (PEFile.Section s : sectionsSorted) {
-			String curSeg = s.decodeTag();
-			if (lastAddress != 0) {
-				if (s.virtualAddrRelative != lastAddress) {
-					int confirm = JOptionPane.showConfirmDialog(null, String.format(
-							"Detected virtual layout gap between segments \"%s\" and \"%s\"!\nThis executable won't work on Windows 10 unless this is fixed.\nFix it?",
-							lastSeg, curSeg), "Confirm operation", JOptionPane.WARNING_MESSAGE,
-							JOptionPane.YES_NO_OPTION);
-					if (confirm != JOptionPane.YES_OPTION) {
-						lastSeg = curSeg;
-						lastAddress = PEFile.alignForward(s.virtualAddrRelative + s.virtualSize, sectionAlignment);
-						continue;
-					}
-					// create new filler section
-					mallocFiller(flrNum++, lastAddress, s.virtualAddrRelative - lastAddress);
+		public void windowClosing(WindowEvent e) {
+			if (src != null && modified) {
+				int sel = JOptionPane.showConfirmDialog(window,
+						"Executable has been modified since last save!\nSave executable?", "Unsaved changes detected",
+						JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+				if (sel == JOptionPane.CANCEL_OPTION)
+					return;
+				if (sel == JOptionPane.YES_OPTION) {
+					// TODO
 				}
 			}
-			lastSeg = curSeg;
-			lastAddress = PEFile.alignForward(s.virtualAddrRelative + s.virtualSize, sectionAlignment);
+			System.exit(0);
+		}
+
+	}
+
+	private static JFrame window;
+
+	public static JFrame getWindow() {
+		return window;
+	}
+
+	private static File src;
+	private static PEFile peData;
+	private static boolean modified;
+
+	public static void main(String[] args) {
+		if (GraphicsEnvironment.isHeadless()) {
+			System.out.println("Headless mode is enabled!\nOrgAdder cannot run in headless mode!");
+			System.exit(0);
+		}
+		Thread.setDefaultUncaughtExceptionHandler(new ExceptionHandler());
+		final String nolaf = "nolaf";
+		if (new File(System.getProperty("user.dir") + "/" + nolaf).exists())
+			LOGGER.info("No L&F file detected, skipping setting Look & Feel");
+		else
+			try {
+				UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+			} catch (ClassNotFoundException | InstantiationException | IllegalAccessException
+					| UnsupportedLookAndFeelException e) {
+				LOGGER.fatal("Error while setting system look and feel", e);
+				JOptionPane.showMessageDialog(null, "Could not set Look & Feel!\nPlease add a file named \"" + nolaf
+						+ "\" (all lowercase, no extension) to the application folder, and then restart the application.",
+						"Could not set Look & Feel", JOptionPane.ERROR_MESSAGE);
+				System.exit(1);
+			}
+		Config.init();
+		LoadFrame loadFrame;
+		final String skipuc = "skipuc";
+		boolean skipucF = new File(System.getProperty("user.dir") + "/" + skipuc).exists();
+		boolean skipucR = Config.getBoolean(Config.KEY_SKIP_UPDATE_CHECK, false);
+		if (skipucR) {
+			Config.setBoolean(Config.KEY_SKIP_UPDATE_CHECK, false);
+			skipucF = skipucR;
+		}
+		if (skipucF) {
+			LOGGER.info("Update check: skip file detected, skipping");
+			loadFrame = new LoadFrame();
+		} else {
+			loadFrame = updateCheck(false, false);
+		}
+		SwingUtilities.invokeLater(() -> {
+			loadFrame.setLoadString("Loading...");
+			loadFrame.repaint();
+		});
+		SwingUtilities.invokeLater(() -> {
+			window = new JFrame();
+			window.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+			final Dimension size = new Dimension(360, 180);
+			window.setPreferredSize(size);
+			window.setMaximumSize(size);
+			window.setMinimumSize(size);
+			window.setResizable(false);
+			// TODO Add components
+			window.setLocationRelativeTo(null);
+			window.setTitle("OrgAdder v" + VERSION);
+			window.setVisible(true);
+			window.requestFocus();
+			loadFrame.dispose();
+		});
+	}
+
+	public static void load(File f) {
+		src = f;
+		try {
+			FileInputStream inStream = new FileInputStream(src);
+			FileChannel chan = inStream.getChannel();
+			long l = chan.size();
+			if (l > 0x7FFFFFFF) {
+				inStream.close();
+				throw new IOException("Too big!");
+			}
+			ByteBuffer bb = ByteBuffer.allocate((int) l);
+			if (chan.read(bb) != l) {
+				inStream.close();
+				throw new IOException("Didn't read whole file.");
+			}
+			inStream.close();
+			peData = new PEFile(bb, 0x1000);
+		} catch (IOException e) {
+			LOGGER.error("Failed to read from file " + f.getAbsolutePath(), e);
+			JOptionPane.showMessageDialog(window, "Couldn't read from file:\n" + f.getAbsolutePath(), "Read fail",
+					JOptionPane.ERROR_MESSAGE);
 		}
 	}
 
-	public static void patch(ByteBuffer data, int offset) {
-		// int shift = 0;
-		if (offset >= 0x400000)
-			offset -= 0x400000;
-		ByteBuffer d = peData.setupRVAPoint(offset);
-		if (d != null) {
-			// it's within this section
-			data.position(0);
-			d.put(data);
+	public static void save(File f) {
+		if (src == null || peData == null)
+			return;
+		byte[] b = ONTHandler.write(peData);
+		try {
+			FileOutputStream oStream = new FileOutputStream(f);
+			oStream.write(b);
+			oStream.close();
+		} catch (IOException e) {
+			LOGGER.error("Failed to write to file " + f.getAbsolutePath(), e);
+			JOptionPane.showMessageDialog(window, "Couldn't write to file:\n" + f.getAbsolutePath(), "Write fail",
+					JOptionPane.ERROR_MESSAGE);
 		}
 	}
 
-	private static String int2Hex(int i) {
-		return "0x" + Integer.toHexString(i).toUpperCase();
+	public static void downloadFile(String url, File dest) throws IOException {
+		URL site = new URL(url);
+		try (InputStream siteIn = site.openStream();
+				ReadableByteChannel rbc = Channels.newChannel(siteIn);
+				FileOutputStream out = new FileOutputStream(dest)) {
+			out.getChannel().transferFrom(rbc, 0, Long.MAX_VALUE);
+		}
 	}
 
-	public static ByteBuffer read(int imgStrOffset1, int size) {
-		ByteBuffer retVal = null;
-		if (imgStrOffset1 >= 0x400000)
-			imgStrOffset1 -= 0x400000;
-		ByteBuffer d = peData.setupRVAPoint(imgStrOffset1);
-		if (d != null) {
-			// make sure we don't overflow
-			int available = d.capacity() - d.position();
-			size = Math.min(size, available);
-			// it's within this section
-			byte[] data = new byte[size];
-			d.get(data);
-			retVal = ByteBuffer.wrap(data);
+	public static boolean browseTo(String url) throws URISyntaxException, IOException {
+		URI dlSite = new URI(url);
+		if (Desktop.isDesktopSupported())
+			Desktop.getDesktop().browse(dlSite);
+		else
+			return false;
+		return true;
+	}
+
+	public static LoadFrame updateCheck(boolean disposeOfLoadFrame, boolean showUpToDate) {
+		LoadFrame loadFrame = new LoadFrame();
+		File verFile = new File(System.getProperty("user.dir") + "/temp.version");
+		LOGGER.info("Update check: starting");
+		try {
+			downloadFile(UPDATE_CHECK_SITE, verFile);
+		} catch (IOException e1) {
+			LOGGER.error("Update check failed: attempt to download caused exception", e1);
+			JOptionPane.showMessageDialog(null, "The update check has failed!\nAre you not connected to the internet?",
+					"Update check failed", JOptionPane.ERROR_MESSAGE);
 		}
-		if (retVal == null)
-			System.err.println("READ FAIL! OFF=" + int2Hex(imgStrOffset1) + ",SZE=" + int2Hex(size));
-		return retVal;
+		if (verFile.exists()) {
+			LOGGER.info("Update check: reading version");
+			try (FileReader fr = new FileReader(verFile); BufferedReader reader = new BufferedReader(fr);) {
+				Version check = new Version(reader.readLine());
+				if (VERSION.compareTo(check) < 0) {
+					LOGGER.info("Update check successful: have update");
+					JPanel panel = new JPanel();
+					panel.setLayout(new BorderLayout());
+					panel.add(new JLabel("A new update is available: " + check), BorderLayout.PAGE_START);
+					final String defaultCl = "No changelog provided.";
+					String cl = defaultCl;
+					while (reader.ready()) {
+						if (defaultCl.equals(cl))
+							cl = reader.readLine();
+						else
+							cl += "\n" + reader.readLine();
+					}
+					JTextArea chglog = new JTextArea(cl);
+					chglog.setEditable(false);
+					chglog.setPreferredSize(new Dimension(800, 450));
+					JScrollPane scrollChglog = new JScrollPane(chglog);
+					panel.add(scrollChglog, BorderLayout.CENTER);
+					panel.add(
+							new JLabel("Click \"Yes\" to go to the download site, click \"No\" to continue to OSTBM."),
+							BorderLayout.PAGE_END);
+					int result = JOptionPane.showConfirmDialog(null, panel, "New update!", JOptionPane.YES_NO_OPTION,
+							JOptionPane.PLAIN_MESSAGE);
+					if (result == JOptionPane.YES_OPTION) {
+						if (!browseTo(DOWNLOAD_SITE))
+							JOptionPane.showMessageDialog(null,
+									"Sadly, we can't browse to the download site for you on this platform. :(\nHead to\n"
+											+ DOWNLOAD_SITE + "\nto get the newest update!",
+									"Operation not supported...", JOptionPane.ERROR_MESSAGE);
+						System.exit(0);
+					}
+				} else {
+					LOGGER.info("Update check successful: up to date");
+					if (showUpToDate) {
+						JOptionPane.showMessageDialog(null,
+								"You are using the most up to date version of the OneShot Textbox Maker! Have fun!",
+								"Up to date!", JOptionPane.INFORMATION_MESSAGE);
+					}
+				}
+			} catch (IOException e) {
+				LOGGER.error("Update check failed: attempt to read downloaded file caused exception", e);
+				JOptionPane.showMessageDialog(null,
+						"The update check has failed!\nAn exception occured while reading update check results:\n" + e,
+						"Update check failed", JOptionPane.ERROR_MESSAGE);
+			} catch (URISyntaxException e1) {
+				LOGGER.error("Browse to download site failed: bad URI syntax", e1);
+				JOptionPane.showMessageDialog(null, "Failed to browse to the download site...",
+						"Well, this is awkward.", JOptionPane.ERROR_MESSAGE);
+			} finally {
+				verFile.delete();
+			}
+		} else
+			LOGGER.error("Update check failed: downloaded file doesn't exist");
+		if (disposeOfLoadFrame) {
+			loadFrame.dispose();
+			return null;
+		}
+		return loadFrame;
 	}
 
 }
