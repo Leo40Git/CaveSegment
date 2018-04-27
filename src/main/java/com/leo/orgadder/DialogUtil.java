@@ -87,6 +87,8 @@ public class DialogUtil {
 	
 	public static String showInputDialog(Component parent, Object message, String title, String initialSelectionValue) {
 		Object retObj = JOptionPane.showInputDialog(parent, message, title, JOptionPane.PLAIN_MESSAGE, null, null, initialSelectionValue);;
+		if (retObj == null)
+			return null;
 		if (!(retObj instanceof String))
 			throw new RuntimeException("This doesn't make any sense...");
 		return (String) retObj;
