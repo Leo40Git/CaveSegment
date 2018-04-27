@@ -12,6 +12,7 @@ public class Config {
 
 	public static final String KEY_CONFIG_BUILD = "config_build";
 	public static final String KEY_SKIP_UPDATE_CHECK = "skip_update_check";
+	public static final String KEY_LAST_EXE = "last_exe";
 
 	private static Preferences config;
 
@@ -32,6 +33,10 @@ public class Config {
 
 	public static String get(String key, String def) {
 		return config.get(key, def);
+	}
+	
+	public static String get(String key) {
+		return get(key, null);
 	}
 
 	public static void set(String key, String value) {

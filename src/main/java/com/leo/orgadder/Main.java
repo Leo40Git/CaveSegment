@@ -3,12 +3,15 @@ package com.leo.orgadder;
 import java.awt.BorderLayout;
 import java.awt.Desktop;
 import java.awt.Dimension;
+import java.awt.Font;
 import java.awt.GraphicsEnvironment;
+import java.awt.Image;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
@@ -16,17 +19,26 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
-import java.nio.channels.FileChannel;
 import java.nio.channels.ReadableByteChannel;
+import java.util.LinkedList;
+import java.util.List;
 
+import javax.imageio.ImageIO;
+import javax.swing.BorderFactory;
+import javax.swing.BoxLayout;
+import javax.swing.ImageIcon;
+import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.UnsupportedLookAndFeelException;
@@ -47,30 +59,60 @@ public class Main {
 
 		@Override
 		public void windowClosing(WindowEvent e) {
-			if (src != null && modified) {
-				int sel = JOptionPane.showConfirmDialog(window,
-						"Executable has been modified since last save!\nSave executable?", "Unsaved changes detected",
-						JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
-				if (sel == JOptionPane.CANCEL_OPTION)
-					return;
-				if (sel == JOptionPane.YES_OPTION) {
-					// TODO
-				}
-			}
+			boolean cancel = MainAL.promptSaveIfModified();
+			if (cancel)
+				return;
+			MainAL.stopRepainting();
 			System.exit(0);
 		}
 
 	}
+
+	public static final String AC_ABOUT = "about";
+	public static final String AC_UPDATE = "update";
+
+	static class HelpActionListener implements ActionListener {
+
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			switch (e.getActionCommand()) {
+			case AC_ABOUT:
+				if (aboutIcon == null)
+					aboutIcon = new ImageIcon(appIcons.get(APPICON_32), "About");
+				JOptionPane.showMessageDialog(window, "OrgMaker version " + VERSION + "\nMade by Leo",
+						"About OrgMaker v" + VERSION, JOptionPane.INFORMATION_MESSAGE, aboutIcon);
+				break;
+			case AC_UPDATE:
+				SwingUtilities.invokeLater(() -> {
+					updateCheck(true, true);
+				});
+				break;
+			default:
+				break;
+			}
+		}
+
+	}
+
+	public static List<Image> appIcons;
+	public static ImageIcon aboutIcon;
+
+	public static void initAppIcons() throws IOException {
+		appIcons = new LinkedList<>();
+		final String[] sizes = new String[] { "16", "32", "64" };
+		for (String size : sizes)
+			appIcons.add(ImageIO.read(Main.class.getResourceAsStream("/appicon" + size + ".png")));
+	}
+
+	public static final int APPICON_16 = 0;
+	public static final int APPICON_32 = 1;
+	public static final int APPICON_64 = 2;
 
 	private static JFrame window;
 
 	public static JFrame getWindow() {
 		return window;
 	}
-
-	private static File src;
-	private static PEFile peData;
-	private static boolean modified;
 
 	public static void main(String[] args) {
 		if (GraphicsEnvironment.isHeadless()) {
@@ -101,6 +143,11 @@ public class Main {
 			Config.setBoolean(Config.KEY_SKIP_UPDATE_CHECK, false);
 			skipucF = skipucR;
 		}
+		try {
+			initAppIcons();
+		} catch (IOException e1) {
+			resourceError(e1);
+		}
 		if (skipucF) {
 			LOGGER.info("Update check: skip file detected, skipping");
 			loadFrame = new LoadFrame();
@@ -113,58 +160,98 @@ public class Main {
 		});
 		SwingUtilities.invokeLater(() -> {
 			window = new JFrame();
-			window.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-			final Dimension size = new Dimension(360, 180);
-			window.setPreferredSize(size);
-			window.setMaximumSize(size);
-			window.setMinimumSize(size);
+			window.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+			window.addWindowListener(new ConfirmCloseWindowListener());
 			window.setResizable(false);
-			// TODO Add components
+			MainAL.initialize(window);
+			window.setJMenuBar(makeMenuBar());
+			JScrollPane scrollpane = new JScrollPane();
+			JPanel panel = new JPanel();
+			Font baseFnt = panel.getFont();
+			monoFont = new Font(Font.MONOSPACED, baseFnt.getStyle(), baseFnt.getSize());
+			MainAL.orgListComp.setFont(monoFont);
+			panel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+			panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+			panel.add(scrollpane);
+			scrollpane.getViewport().add(MainAL.orgListComp);
+			JPanel btnPanel = new JPanel();
+			btnPanel.add(makeButton("ORG+", MainAL.AC_ADD));
+			btnPanel.add(makeButton("ORG-", MainAL.AC_REMOVE));
+			btnPanel.add(makeButton("EDIT", MainAL.AC_EDIT));
+			panel.add(btnPanel);
+			window.add(panel);
+			window.pack();
 			window.setLocationRelativeTo(null);
 			window.setTitle("OrgAdder v" + VERSION);
+			window.setIconImages(appIcons);
 			window.setVisible(true);
 			window.requestFocus();
 			loadFrame.dispose();
 		});
 	}
 
-	public static void load(File f) {
-		src = f;
-		try {
-			FileInputStream inStream = new FileInputStream(src);
-			FileChannel chan = inStream.getChannel();
-			long l = chan.size();
-			if (l > 0x7FFFFFFF) {
-				inStream.close();
-				throw new IOException("Too big!");
-			}
-			ByteBuffer bb = ByteBuffer.allocate((int) l);
-			if (chan.read(bb) != l) {
-				inStream.close();
-				throw new IOException("Didn't read whole file.");
-			}
-			inStream.close();
-			peData = new PEFile(bb, 0x1000);
-		} catch (IOException e) {
-			LOGGER.error("Failed to read from file " + f.getAbsolutePath(), e);
-			JOptionPane.showMessageDialog(window, "Couldn't read from file:\n" + f.getAbsolutePath(), "Read fail",
-					JOptionPane.ERROR_MESSAGE);
-		}
+	private static Font monoFont;
+
+	private static JMenuBar makeMenuBar() {
+		JMenuBar mb = new JMenuBar();
+		JMenu m = new JMenu("File");
+		JMenuItem mi = makeMenuItem("Load EXE", MainAL.AC_LOAD, false);
+		mi.setAccelerator(KeyStroke.getKeyStroke("control O"));
+		m.add(mi);
+		mi = makeMenuItem("Load Last EXE", MainAL.AC_LOAD_LAST, false);
+		MainAL.loadLastComp = mi;
+		if (Config.get(Config.KEY_LAST_EXE) == null)
+			mi.setEnabled(false);
+		mi.setAccelerator(KeyStroke.getKeyStroke("control shift O"));
+		m.add(mi);
+		m.addSeparator();
+		mi = makeMenuItem("Save EXE", MainAL.AC_SAVE, true);
+		mi.setAccelerator(KeyStroke.getKeyStroke("control S"));
+		m.add(mi);
+		mi = makeMenuItem("Save EXE As...", MainAL.AC_SAVE_AS, true);
+		mi.setAccelerator(KeyStroke.getKeyStroke("control shift S"));
+		m.add(mi);
+		mb.add(m);
+		HelpActionListener helpAS = new HelpActionListener();
+		m = new JMenu("Help");
+		m.add(makeMenuItem("About OrgAdder", helpAS, AC_ABOUT));
+		m.add(makeMenuItem("Check for Updates", helpAS, AC_UPDATE));
+		mb.add(m);
+		return mb;
 	}
 
-	public static void save(File f) {
-		if (src == null || peData == null)
-			return;
-		byte[] b = ONTHandler.write(peData);
-		try {
-			FileOutputStream oStream = new FileOutputStream(f);
-			oStream.write(b);
-			oStream.close();
-		} catch (IOException e) {
-			LOGGER.error("Failed to write to file " + f.getAbsolutePath(), e);
-			JOptionPane.showMessageDialog(window, "Couldn't write to file:\n" + f.getAbsolutePath(), "Write fail",
-					JOptionPane.ERROR_MESSAGE);
+	private static JMenuItem makeMenuItem(String label, ActionListener as, String ac) {
+		JMenuItem mi = new JMenuItem(label);
+		mi.setActionCommand(ac);
+		mi.addActionListener(as);
+		return mi;
+	}
+
+	private static JMenuItem makeMenuItem(String label, String ac, boolean disableUntilInit) {
+		JMenuItem mi = makeMenuItem(label, MainAL.get(), ac);
+		if (disableUntilInit) {
+			mi.setEnabled(false);
+			MainAL.enableOnInit.add(mi);
 		}
+		return mi;
+	}
+
+	private static JButton makeButton(String label, String ac) {
+		JButton btn = new JButton(label);
+		btn.setFont(monoFont);
+		btn.setActionCommand(ac);
+		btn.addActionListener(MainAL.get());
+		btn.setEnabled(false);
+		MainAL.enableOnInit.add(btn);
+		return btn;
+	}
+
+	public static void resourceError(Throwable e) {
+		LOGGER.fatal("Error while loading resources", e);
+		JOptionPane.showMessageDialog(null,
+				"Could not load resources:" + e + "\nPlease report this error here:\n" + ISSUES_SITE,
+				"Could not load resources!", JOptionPane.ERROR_MESSAGE);
+		System.exit(1);
 	}
 
 	public static void downloadFile(String url, File dest) throws IOException {

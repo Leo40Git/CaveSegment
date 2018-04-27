@@ -165,7 +165,7 @@ public class ONTHandler {
 		int ontSecID = peData.getSectionIndexByTag(".ont");
 		if (ontSecID == -1) {
 			setupONTSection(peData);
-			return false;
+			return true;
 		}
 		PEFile.Section ontSec = peData.sections.get(ontSecID);
 		ByteBuffer listBuf = ByteBuffer.wrap(ontSec.rawData);
@@ -186,14 +186,14 @@ public class ONTHandler {
 				byte c = cBuf.get(0);
 				if (c == 0)
 					break;
-				orgNameTmp[index++] = toUpperChar(c);
+				orgNameTmp[index++] = c;
 			}
 			byte[] orgName = new byte[index];
 			System.arraycopy(orgNameTmp, 0, orgName, 0, index);
 			orgNamesRaw.add(orgName);
 		}
 		initOrgNames(orgNamesRaw);
-		return true;
+		return false;
 	}
 
 	private static char toUpperChar(char c) {
@@ -315,7 +315,7 @@ public class ONTHandler {
 		}
 	}
 
-	public static void patch(PEFile peData, ByteBuffer data, int offset) {
+	private static void patch(PEFile peData, ByteBuffer data, int offset) {
 		// int shift = 0;
 		if (offset >= 0x400000)
 			offset -= 0x400000;
@@ -331,7 +331,7 @@ public class ONTHandler {
 		return "0x" + Integer.toHexString(i).toUpperCase();
 	}
 
-	public static ByteBuffer read(PEFile peData, int imgStrOffset1, int size) {
+	private static ByteBuffer read(PEFile peData, int imgStrOffset1, int size) {
 		ByteBuffer retVal = null;
 		if (imgStrOffset1 >= 0x400000)
 			imgStrOffset1 -= 0x400000;
