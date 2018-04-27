@@ -33,6 +33,7 @@ public class LoadFrame extends JFrame {
 		add(loadLabel);
 		pack();
 		setLocationRelativeTo(null);
+		setIconImages(Main.appIcons);
 		setVisible(true);
 		requestFocus();
 	}
