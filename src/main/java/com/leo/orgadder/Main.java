@@ -50,7 +50,7 @@ public class Main {
 
 	public static final Logger LOGGER = LogManager.getLogger("OrgAdder");
 
-	public static final Version VERSION = new Version("1.0.1");
+	public static final Version VERSION = new Version("1.0.2");
 	public static final String UPDATE_CHECK_SITE = "https://raw.githubusercontent.com/Leo40Git/OrgAdder/master/.version";
 	public static final String DOWNLOAD_SITE = "https://github.com/Leo40Git/OrgAdder/releases/latest/";
 	public static final String ISSUES_SITE = "https://github.com/Leo40Git/OrgAdder/issues";
@@ -79,8 +79,8 @@ public class Main {
 			case AC_ABOUT:
 				if (aboutIcon == null)
 					aboutIcon = new ImageIcon(appIcons.get(APPICON_32), "About");
-				JOptionPane.showMessageDialog(window, "OrgMaker version " + VERSION + "\nMade by Leo",
-						"About OrgMaker v" + VERSION, JOptionPane.INFORMATION_MESSAGE, aboutIcon);
+				JOptionPane.showMessageDialog(window, "OrgAdder version " + VERSION + "\nMade by Leo",
+						"About OrgAdder v" + VERSION, JOptionPane.INFORMATION_MESSAGE, aboutIcon);
 				break;
 			case AC_UPDATE:
 				SwingUtilities.invokeLater(() -> {
@@ -181,6 +181,16 @@ public class Main {
 			panel.add(btnPanel);
 			window.add(panel);
 			window.pack();
+			Dimension scrollpaneSize = scrollpane.getSize();
+			int heightIncrease = scrollpaneSize.height;
+			scrollpaneSize.height *= 2;
+			scrollpane.setPreferredSize(scrollpaneSize);
+			scrollpane.setMinimumSize(scrollpaneSize);
+			scrollpane.setMaximumSize(scrollpaneSize);
+			window.pack();
+			Dimension windowSize = window.getSize();
+			windowSize.height += heightIncrease;
+			window.setSize(windowSize);
 			window.setLocationRelativeTo(null);
 			window.setTitle("OrgAdder v" + VERSION);
 			window.setIconImages(appIcons);
@@ -306,7 +316,8 @@ public class Main {
 					JScrollPane scrollChglog = new JScrollPane(chglog);
 					panel.add(scrollChglog, BorderLayout.CENTER);
 					panel.add(
-							new JLabel("Click \"Yes\" to go to the download site, click \"No\" to continue to OSTBM."),
+							new JLabel(
+									"Click \"Yes\" to go to the download site, click \"No\" to continue to OrgAdder."),
 							BorderLayout.PAGE_END);
 					int result = JOptionPane.showConfirmDialog(null, panel, "New update!", JOptionPane.YES_NO_OPTION,
 							JOptionPane.PLAIN_MESSAGE);
@@ -322,8 +333,8 @@ public class Main {
 					LOGGER.info("Update check successful: up to date");
 					if (showUpToDate) {
 						JOptionPane.showMessageDialog(null,
-								"You are using the most up to date version of the OneShot Textbox Maker! Have fun!",
-								"Up to date!", JOptionPane.INFORMATION_MESSAGE);
+								"You are using the most up to date version of OrgAdder! Have fun!", "Up to date!",
+								JOptionPane.INFORMATION_MESSAGE);
 					}
 				}
 			} catch (IOException e) {

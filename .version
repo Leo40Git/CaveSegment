@@ -1,4 +1,7 @@
-1.0.1
+1.0.2
+Hotfix 1.0.2
+- App is no longer confused about what it is
+- Fix error when adding/editing ORGs
 Hotfix 1.0.1
 - This isn't OrgMaker!
 - Fix error when cancelling "add/edit ORG" dialogs

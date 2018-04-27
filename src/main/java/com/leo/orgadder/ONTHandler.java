@@ -147,8 +147,8 @@ public class ONTHandler {
 			orgNameSize += orgName.length;
 			orgNamesRaw.add(orgName);
 		}
-		System.out.println("ORG name pointer table size is " + int2Hex(ontSize));
-		System.out.println("Read " + orgNamesRaw.size() + " names for a total of " + int2Hex(orgNameSize) + " bytes");
+		Main.LOGGER.trace("ORG name pointer table size is " + int2Hex(ontSize));
+		Main.LOGGER.trace("Read " + orgNamesRaw.size() + " names for a total of " + int2Hex(orgNameSize) + " bytes");
 		// now that we're read everything, initialize orgNames...
 		initOrgNames(orgNamesRaw);
 		// ...and then write the ONT section...

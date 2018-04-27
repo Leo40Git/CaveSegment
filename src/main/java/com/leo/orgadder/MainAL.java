@@ -250,9 +250,7 @@ public class MainAL implements ActionListener, ListSelectionListener {
 			if (newName == null)
 				break;
 			hit = false;
-			for (int i = 0; i <= orgList.size(); i++) {
-				if (i == currentOrg)
-					continue;
+			for (int i = 0; i < orgList.size(); i++) {
 				String otherName = orgList.get(i);
 				if (newName.equalsIgnoreCase(otherName)) {
 					JOptionPane.showMessageDialog(window, "The name \"" + newName + "\" already exists!",
@@ -290,9 +288,7 @@ public class MainAL implements ActionListener, ListSelectionListener {
 				break;
 			if (oldHash != orgName.hashCode()) {
 				hit = false;
-				for (int i = 0; i <= orgList.size(); i++) {
-					if (i == currentOrg)
-						continue;
+				for (int i = 0; i < orgList.size(); i++) {
 					String otherName = orgList.get(i);
 					if (orgName.equalsIgnoreCase(otherName)) {
 						JOptionPane.showMessageDialog(window, "The name \"" + orgName + "\" already exists!",
