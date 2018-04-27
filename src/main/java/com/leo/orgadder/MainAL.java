@@ -164,7 +164,10 @@ public class MainAL implements ActionListener, ListSelectionListener {
 					JOptionPane.INFORMATION_MESSAGE);
 		} else
 			modified = false;
-		orgList = new LinkedList<>(ONTHandler.getOrgNames());
+		Vector<String> orgNames = ONTHandler.getOrgNames();
+		orgList = new LinkedList<>();
+		for (int i = 0; i < orgNames.size(); i++)
+			orgList.add(num2TSCParam(i) + " - " + orgNames.get(i));
 		createOrgListModel();
 		orgListComp.setEnabled(true);
 		orgListComp.setSelectedValue(MainAL.orgList.get(0), true);
@@ -177,9 +180,8 @@ public class MainAL implements ActionListener, ListSelectionListener {
 	public static boolean saveOrgListAs() {
 		File saveFile = DialogUtil.openFileDialog(true, window, "Save EXE", FF_EXE, srcFile);
 		if (saveFile == null)
-			if (srcFile == null)
-				return true;
-		saveFile = srcFile;
+			return true;
+		srcFile = saveFile;
 		return saveOrgList0();
 	}
 
@@ -193,7 +195,7 @@ public class MainAL implements ActionListener, ListSelectionListener {
 		Vector<String> orgNames = ONTHandler.getOrgNames();
 		orgNames.clear();
 		for (String name : orgList)
-			orgNames.add(name);
+			orgNames.add(name.substring(7));
 		byte[] b = ONTHandler.write(peData);
 		try {
 			FileOutputStream oStream = new FileOutputStream(srcFile);
@@ -207,6 +209,16 @@ public class MainAL implements ActionListener, ListSelectionListener {
 		}
 		modified = false;
 		return true;
+	}
+	
+	public static String num2TSCParam(long p) {
+		String ret = "";
+		for (int j = 0; j < 3; j++) {
+			ret = (char) ('0' + p % 10) + ret;
+			p /= 10;
+		}
+		ret = (char) ('0' + p) + ret;
+		return ret;
 	}
 
 	@Override
@@ -247,11 +259,11 @@ public class MainAL implements ActionListener, ListSelectionListener {
 			break;
 		case AC_ADD:
 			String newName = DialogUtil.showInputDialog(window, "Enter new ORG name:", "Add ORG", "NEWDATA");
-			if (newName == null)
+			if (newName == null || newName.isEmpty())
 				break;
 			hit = false;
 			for (int i = 0; i < orgList.size(); i++) {
-				String otherName = orgList.get(i);
+				String otherName = orgList.get(i).substring(7);
 				if (newName.equalsIgnoreCase(otherName)) {
 					JOptionPane.showMessageDialog(window, "The name \"" + newName + "\" already exists!",
 							"Add ORG failure", JOptionPane.ERROR_MESSAGE);
@@ -262,7 +274,7 @@ public class MainAL implements ActionListener, ListSelectionListener {
 			if (hit)
 				break;
 			currentOrg = orgList.size();
-			orgList.add(currentOrg, newName);
+			orgList.add(currentOrg, num2TSCParam(currentOrg) + " - " + newName);
 			createOrgListModel();
 			modified = true;
 			break;
@@ -273,8 +285,7 @@ public class MainAL implements ActionListener, ListSelectionListener {
 				break;
 			}
 			orgList.remove(currentOrg);
-			if (currentOrg == orgList.size())
-				currentOrg--;
+			currentOrg--;
 			if (currentOrg < 0)
 				currentOrg = 0;
 			createOrgListModel();
@@ -282,14 +293,16 @@ public class MainAL implements ActionListener, ListSelectionListener {
 			break;
 		case AC_EDIT:
 			String orgName = orgList.get(currentOrg);
+			orgName = orgName.substring(7);
 			int oldHash = orgName.hashCode();
 			orgName = DialogUtil.showInputDialog(window, "Enter new ORG name:", "Edit ORG", orgName);
-			if (orgName == null)
+			if (orgName == null || orgName.isEmpty())
 				break;
-			if (oldHash != orgName.hashCode()) {
+			String actualOrgName = num2TSCParam(currentOrg) + " - " + orgName;
+			if (oldHash != actualOrgName.hashCode()) {
 				hit = false;
 				for (int i = 0; i < orgList.size(); i++) {
-					String otherName = orgList.get(i);
+					String otherName = orgList.get(i).substring(7);
 					if (orgName.equalsIgnoreCase(otherName)) {
 						JOptionPane.showMessageDialog(window, "The name \"" + orgName + "\" already exists!",
 								"Edit ORG failure", JOptionPane.ERROR_MESSAGE);
@@ -299,7 +312,7 @@ public class MainAL implements ActionListener, ListSelectionListener {
 				}
 				if (hit)
 					break;
-				orgList.set(currentOrg, orgName);
+				orgList.set(currentOrg, actualOrgName);
 				createOrgListModel();
 				modified = true;
 			}
