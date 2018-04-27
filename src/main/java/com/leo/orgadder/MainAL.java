@@ -250,7 +250,7 @@ public class MainAL implements ActionListener, ListSelectionListener {
 			if (newName == null)
 				break;
 			hit = false;
-			for (int i = 0; i < orgList.size(); i++) {
+			for (int i = 0; i <= orgList.size(); i++) {
 				if (i == currentOrg)
 					continue;
 				String otherName = orgList.get(i);
@@ -290,7 +290,7 @@ public class MainAL implements ActionListener, ListSelectionListener {
 				break;
 			if (oldHash != orgName.hashCode()) {
 				hit = false;
-				for (int i = 0; i < orgList.size(); i++) {
+				for (int i = 0; i <= orgList.size(); i++) {
 					if (i == currentOrg)
 						continue;
 					String otherName = orgList.get(i);

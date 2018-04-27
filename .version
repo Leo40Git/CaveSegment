@@ -1,6 +1,7 @@
 1.0.1
 Hotfix 1.0.1
 - This isn't OrgMaker!
-- Fix error when cancelling "edit ORG" dialog
+- Fix error when cancelling "add/edit ORG" dialogs
+- Disallow mutiple ORG names properly
 Version 1.0
 - Initial release
