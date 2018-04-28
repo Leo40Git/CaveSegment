@@ -24,14 +24,21 @@ import javax.swing.event.ListSelectionListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
 public class MainAL implements ActionListener, ListSelectionListener {
+	
+	public static final String RSRC_ORG_TYPE = "ORG";
+	public static final int RSRC_LANG_ID = 1041; // Language: Japanese, Sub-Language: Default
 
 	public static final FileNameExtensionFilter FF_EXE = new FileNameExtensionFilter("Executables (*.exe)", "exe");
+	public static final FileNameExtensionFilter FF_ORG = new FileNameExtensionFilter("Orgayna music files (*.org)",
+			"org");
 
 	public static final String AC_LOAD = "load";
 	public static final String AC_LOAD_LAST = "load_last";
 	public static final String AC_ADD = "add";
 	public static final String AC_REMOVE = "remove";
 	public static final String AC_EDIT = "edit";
+	public static final String AC_REPLACE = "replace";
+	public static final String AC_EXTRACT = "extract";
 	public static final String AC_SAVE = "save";
 	public static final String AC_SAVE_AS = "save_as";
 
@@ -158,6 +165,7 @@ public class MainAL implements ActionListener, ListSelectionListener {
 					JOptionPane.ERROR_MESSAGE);
 			return false;
 		}
+		RsrcHandler.setPEData(peData);
 		if (ONTHandler.readOrSetup(peData)) {
 			modified = true;
 			JOptionPane.showMessageDialog(window, "Successfully initialized ORG name table section.", "ONT initialized",
@@ -210,7 +218,7 @@ public class MainAL implements ActionListener, ListSelectionListener {
 		modified = false;
 		return true;
 	}
-	
+
 	public static String num2TSCParam(long p) {
 		String ret = "";
 		for (int j = 0; j < 3; j++) {
@@ -221,9 +229,37 @@ public class MainAL implements ActionListener, ListSelectionListener {
 		return ret;
 	}
 
+	public static byte[] getOrgFile(String title) {
+		File orgFile = DialogUtil.openFileDialog(false, window, title, FF_ORG, srcFile);
+		if (orgFile == null)
+			return null;
+		byte[] orgData = null;
+		try {
+			FileInputStream orgIn = new FileInputStream(orgFile);
+			orgData = new byte[orgIn.available()];
+			if (orgIn.read(orgData) != orgData.length) {
+				orgIn.close();
+				throw new IOException("Could not read whole file.");
+			}
+			orgIn.close();
+		} catch (IOException e) {
+			Main.LOGGER.error("Error while reading ORG file", e);
+			JOptionPane.showMessageDialog(window, "Read ORG file failure",
+					"Could not read ORG file\n\"" + orgFile.getAbsolutePath() + "\"!", JOptionPane.ERROR_MESSAGE);
+			return null;
+		}
+		return orgData;
+	}
+	
+	// TODO remove this
+	private byte[] tempPreventACEXTRACTErrors() {
+		return null;
+	}
+
 	@Override
 	public void actionPerformed(ActionEvent ae) {
 		boolean hit;
+		byte[] orgData;
 		switch (ae.getActionCommand()) {
 		case AC_LOAD:
 			if (promptSaveIfModified())
@@ -258,6 +294,9 @@ public class MainAL implements ActionListener, ListSelectionListener {
 				loadLastComp.setEnabled(true);
 			break;
 		case AC_ADD:
+			orgData = getOrgFile("Select ORG file to add");
+			if (orgData == null)
+				return;
 			String newName = DialogUtil.showInputDialog(window, "Enter new ORG name:", "Add ORG", "NEWDATA");
 			if (newName == null || newName.isEmpty())
 				break;
@@ -273,6 +312,7 @@ public class MainAL implements ActionListener, ListSelectionListener {
 			}
 			if (hit)
 				break;
+			// RsrcHandler.setResourceData(RSRC_ORG_TYPE, newName, RSRC_LANG_ID, orgData);
 			currentOrg = orgList.size();
 			orgList.add(currentOrg, num2TSCParam(currentOrg) + " - " + newName);
 			createOrgListModel();
@@ -284,7 +324,7 @@ public class MainAL implements ActionListener, ListSelectionListener {
 						JOptionPane.ERROR_MESSAGE);
 				break;
 			}
-			orgList.remove(currentOrg);
+			// RsrcHandler.setResourceData(RSRC_ORG_TYPE, orgList.remove(currentOrg), RSRC_LANG_ID, null);
 			currentOrg--;
 			if (currentOrg < 0)
 				currentOrg = 0;
@@ -315,6 +355,34 @@ public class MainAL implements ActionListener, ListSelectionListener {
 				orgList.set(currentOrg, actualOrgName);
 				createOrgListModel();
 				modified = true;
+			}
+			break;
+		case AC_REPLACE:
+			orgData = getOrgFile("Select ORG file to replace with");
+			if (orgData == null)
+				break;
+			// RsrcHandler.setResourceData(RSRC_ORG_TYPE, orgList.get(currentOrg), RSRC_LANG_ID, orgData);
+			break;
+		case AC_EXTRACT:
+			// orgData = RsrcHandler.getResourceData(RSRC_ORG_TYPE, orgList.get(currentOrg));
+			orgData = tempPreventACEXTRACTErrors(); // TODO remove this
+			if (orgData == null) {
+				JOptionPane.showMessageDialog(window,
+						"The resource data for this ORG does not exist!\nPlease use the \"REPLACE\" option to add resource data for this ORG.",
+						"ORG resource does not exist!", JOptionPane.ERROR_MESSAGE);
+				break;
+			}
+			File outFile = DialogUtil.openFileDialog(true, window, "Save ORG file", FF_ORG, srcFile);
+			if (outFile == null)
+				break;
+			try {
+				FileOutputStream outS = new FileOutputStream(outFile);
+				outS.write(orgData);
+				outS.close();
+			} catch (IOException e) {
+				Main.LOGGER.error("Error while writing ORG file", e);
+				JOptionPane.showMessageDialog(window, "Write ORG file failure",
+						"Could not write ORG file\n\"" + outFile.getAbsolutePath() + "\"!", JOptionPane.ERROR_MESSAGE);
 			}
 			break;
 		case AC_SAVE:

@@ -192,9 +192,11 @@ public class Main {
 			panel.add(scrollpane);
 			scrollpane.getViewport().add(MainAL.orgListComp);
 			JPanel btnPanel = new JPanel();
-			btnPanel.add(makeButton("ORG+", MainAL.AC_ADD));
-			btnPanel.add(makeButton("ORG-", MainAL.AC_REMOVE));
-			btnPanel.add(makeButton("EDIT", MainAL.AC_EDIT));
+			btnPanel.add(makeButton("ADD ORG", MainAL.AC_ADD));
+			btnPanel.add(makeButton("DEL ORG", MainAL.AC_REMOVE));
+			btnPanel.add(makeButton("REN ORG", MainAL.AC_EDIT));
+			btnPanel.add(makeButton("REPLACE", MainAL.AC_REPLACE));
+			btnPanel.add(makeButton("EXTRACT", MainAL.AC_EXTRACT));
 			panel.add(btnPanel);
 			window.add(panel);
 			window.pack();
@@ -204,7 +206,6 @@ public class Main {
 			scrollpane.setPreferredSize(scrollpaneSize);
 			scrollpane.setMinimumSize(scrollpaneSize);
 			scrollpane.setMaximumSize(scrollpaneSize);
-			window.pack();
 			Dimension windowSize = window.getSize();
 			windowSize.height += heightIncrease;
 			window.setSize(windowSize);
