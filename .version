@@ -1,4 +1,10 @@
-1.0.4
+1.1
+Version 1.1
+- You can now add/replace/remove ORGs from within OrgAdder!
+- New options!
+  - "REPLACE" - Replace ORG with new file
+  - "EXTRACT" - Save ORG
+- Change guide to match new ability
 "Hotfix" 1.0.4
 - Add guide
 Hotfix 1.0.3
