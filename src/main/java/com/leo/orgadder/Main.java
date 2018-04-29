@@ -50,7 +50,7 @@ public class Main {
 
 	public static final Logger LOGGER = LogManager.getLogger("OrgAdder");
 
-	public static final Version VERSION = new Version("1.0.4");
+	public static final Version VERSION = new Version("1.1");
 	public static final String UPDATE_CHECK_SITE = "https://raw.githubusercontent.com/Leo40Git/OrgAdder/master/.version";
 	public static final String DOWNLOAD_SITE = "https://github.com/Leo40Git/OrgAdder/releases/latest/";
 	public static final String ISSUES_SITE = "https://github.com/Leo40Git/OrgAdder/issues";
@@ -68,18 +68,10 @@ public class Main {
 
 	}
 
-	public static final String GUIDE_STR = "Okay listen up it's pretty simple\n" + "1. Load your EXE with OrgAdder\n"
-			+ "2. Click on ORG+ to add a new entry\n" + "3. Type in a name. Remember this name, you're gonna need it\n"
-			+ "4. Press \"OK\", and save your EXE\n" + "5. Now, open your EXE with Resource Hacker\n"
-			+ "6. Open the \"Action\" menu and click on \"Add Single Binary or Image Resource ...\"\n"
-			+ "7. Click on \"Select File ...\" and select your ORG file\n"
-			+ "8. In the \"Resource Type\" field, type in \"ORG\"\n"
-			+ "9. In the \"Resource Name\" field, type in the name you entered in OrgAdder\n"
-			+ "10. In the \"Resource Language\" field, type in 1041 (Japanese, Default)\n"
-			+ "10b. If the \"Resource Language\" field is disabled, skip this step and follow step 11b\n"
-			+ "11. Click on \"Add Resource\". You should see your new ORG appear in the resource explorer!\n"
-			+ "11b. Right click on the ORG, and click on \"Change Language for this Resource ...\". Type 1041 into the \"Lang. ID\" field\n"
-			+ "12. Finally, save your EXE within Resource Hacker\n" + "Your ORG is now ready to be used in-game!";
+	public static final String GUIDE_STR = "Okay listen up it's really simple\n" + "1. Load your EXE\n"
+			+ "2. Click on \"ADD ORG\" to add a new entry\n" + "3. Select an ORG file to add\n"
+			+ "4. Type in a name. Any name will do, though uppercase is recommended\n"
+			+ "5. Press \"OK\", and save your EXE\n" + "Your ORG is now ready to be used in-game!";
 
 	public static final String AC_GUIDE = "guide";
 	public static final String AC_ABOUT = "about";
@@ -91,12 +83,12 @@ public class Main {
 		public void actionPerformed(ActionEvent e) {
 			switch (e.getActionCommand()) {
 			case AC_GUIDE:
-				JOptionPane.showMessageDialog(window, GUIDE_STR, "Guide", JOptionPane.PLAIN_MESSAGE);
+				JOptionPane.showMessageDialog(window, GUIDE_STR, "Add ORG Guide", JOptionPane.PLAIN_MESSAGE);
 				break;
 			case AC_ABOUT:
 				if (aboutIcon == null)
 					aboutIcon = new ImageIcon(appIcons.get(APPICON_32), "About");
-				JOptionPane.showMessageDialog(window, "OrgAdder version " + VERSION + "\nMade by Leo",
+				JOptionPane.showMessageDialog(window, "OrgAdder version " + VERSION + "\nMade by Leo & 20kdc",
 						"About OrgAdder v" + VERSION, JOptionPane.INFORMATION_MESSAGE, aboutIcon);
 				break;
 			case AC_UPDATE:
@@ -242,7 +234,7 @@ public class Main {
 		mb.add(m);
 		HelpActionListener helpAS = new HelpActionListener();
 		m = new JMenu("Help");
-		m.add(makeMenuItem("Guide", helpAS, AC_GUIDE));
+		m.add(makeMenuItem("Add ORG Guide", helpAS, AC_GUIDE));
 		m.addSeparator();
 		m.add(makeMenuItem("About OrgAdder", helpAS, AC_ABOUT));
 		m.add(makeMenuItem("Check for Updates", helpAS, AC_UPDATE));

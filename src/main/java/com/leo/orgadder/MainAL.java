@@ -23,8 +23,10 @@ import javax.swing.event.ListSelectionEvent;
 import javax.swing.event.ListSelectionListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
+import com.leo.orgadder.RsrcHandler.RsrcEntry;
+
 public class MainAL implements ActionListener, ListSelectionListener {
-	
+
 	public static final String RSRC_ORG_TYPE = "ORG";
 	public static final int RSRC_LANG_ID = 1041; // Language: Japanese, Sub-Language: Default
 
@@ -102,6 +104,8 @@ public class MainAL implements ActionListener, ListSelectionListener {
 
 	public static File srcFile;
 	public static PEFile peData;
+	public static RsrcHandler rsrcHandler;
+	private static PEFile.Section rsrcSec;
 	public static boolean modified;
 	public static List<String> orgList;
 	public static JList<String> orgListComp;
@@ -165,7 +169,50 @@ public class MainAL implements ActionListener, ListSelectionListener {
 					JOptionPane.ERROR_MESSAGE);
 			return false;
 		}
-		RsrcHandler.setPEData(peData);
+		int rsrcSecID = peData.getResourcesIndex();
+		if (rsrcSecID == -1) {
+			JOptionPane.showMessageDialog(window, "Resources section could not be found!", "Read EXE failure",
+					JOptionPane.ERROR_MESSAGE);
+			return false;
+		}
+		rsrcSec = peData.sections.get(rsrcSecID);
+		rsrcSec.shiftResourceContents(-rsrcSec.virtualAddrRelative);
+		rsrcHandler = new RsrcHandler(rsrcSec);
+		rsrcSec.shiftResourceContents(rsrcSec.virtualAddrRelative);
+		// DEBUG: dump .rsrc contents
+		Main.LOGGER.trace("BEGIN .RSRC DUMP (" + rsrcHandler.root.entries.size() + " entries)\n"
+				+ dumpResources(0, rsrcHandler.root.entries) + "END .RSRC DUMP");
+		// sanity check .rsrc
+		RsrcEntry orgDir = rsrcHandler.root.getSubEntry("ORG");
+		if (orgDir == null) {
+			JOptionPane.showMessageDialog(window, "ORG directory could not be found!",
+					".rsrc section sanity check failure", JOptionPane.ERROR_MESSAGE);
+			return false;
+		}
+		boolean sane = true;
+		for (RsrcEntry orgEntry : orgDir.entries) {
+			if (!orgEntry.isDirectory()) {
+				JOptionPane.showMessageDialog(window, "ORG directory contains direct data entry!",
+						".rsrc section sanity check failure", JOptionPane.ERROR_MESSAGE);
+				sane = false;
+				break;
+			}
+			if (orgEntry.name == null) {
+				JOptionPane.showMessageDialog(window, "ORG entry ID " + orgEntry.id + " should be named!",
+						".rsrc section sanity check failure", JOptionPane.ERROR_MESSAGE);
+				sane = false;
+				break;
+			}
+			if (orgEntry.entries.size() != 1) {
+				JOptionPane.showMessageDialog(window,
+						"ORG entry \"" + orgEntry.name + "\" doesn't contain one data entry!",
+						".rsrc section sanity check failure", JOptionPane.ERROR_MESSAGE);
+				sane = false;
+				break;
+			}
+		}
+		if (!sane)
+			return false;
 		if (ONTHandler.readOrSetup(peData)) {
 			modified = true;
 			JOptionPane.showMessageDialog(window, "Successfully initialized ORG name table section.", "ONT initialized",
@@ -185,6 +232,42 @@ public class MainAL implements ActionListener, ListSelectionListener {
 		return true;
 	}
 
+	private static String dumpResources(int indent, List<RsrcHandler.RsrcEntry> entries) {
+		String out = "";
+		for (RsrcHandler.RsrcEntry entry : entries) {
+			String name = entry.name;
+			if (name == null)
+				name = "ID " + Integer.toUnsignedString(entry.id);
+			else
+				name = "\"" + name + "\"";
+			out += rsrcDumpIndent(indent) + "Directory " + name + ", " + entries.size() + " entries\n";
+			if (entry.data == null)
+				out += dumpResources(indent + 1, entry.entries);
+			else {
+				name = entry.name;
+				if (name == null)
+					name = "ID " + Integer.toUnsignedString(entry.id);
+				else
+					name = "\"" + name + "\"";
+				out += rsrcDumpIndent(indent + 1) + "Data Entry " + name + ", size of 0x"
+						+ Integer.toHexString(entry.data.length).toUpperCase() + " bytes\n";
+			}
+		}
+		return out;
+	}
+
+	private static String rsrcDumpIndent(int indent) {
+		String out = "";
+		if (indent > 0) {
+			indent--;
+			String indentStr = ">";
+			if (indent > 0)
+				indentStr = new String(new char[indent]).replace('\0', ' ') + indentStr;
+			out = indentStr + out;
+		}
+		return out;
+	}
+
 	public static boolean saveOrgListAs() {
 		File saveFile = DialogUtil.openFileDialog(true, window, "Save EXE", FF_EXE, srcFile);
 		if (saveFile == null)
@@ -200,6 +283,12 @@ public class MainAL implements ActionListener, ListSelectionListener {
 	}
 
 	private static boolean saveOrgList0() {
+		peData.sections.remove(rsrcSec);
+		rsrcHandler.write(rsrcSec);
+		peData.malloc(rsrcSec);
+		int rsrcSecRVA = rsrcSec.virtualAddrRelative;
+		rsrcSec.shiftResourceContents(rsrcSecRVA);
+		peData.setOptionalHeaderInt(0x70, rsrcSecRVA);
 		Vector<String> orgNames = ONTHandler.getOrgNames();
 		orgNames.clear();
 		for (String name : orgList)
@@ -250,16 +339,41 @@ public class MainAL implements ActionListener, ListSelectionListener {
 		}
 		return orgData;
 	}
-	
-	// TODO remove this
-	private byte[] tempPreventACEXTRACTErrors() {
-		return null;
+
+	public static byte[] getOrgData(String name) {
+		RsrcEntry orgDir = rsrcHandler.root.getSubEntry("ORG");
+		RsrcEntry orgEntry = orgDir.getSubEntry(name);
+		if (orgEntry == null)
+			return null;
+		return orgEntry.entries.get(0).data;
+	}
+
+	public static void setOrgData(String name, byte[] org) {
+		RsrcEntry orgDir = rsrcHandler.root.getSubEntry("ORG");
+		RsrcEntry orgEntry = orgDir.getSubEntry(name);
+		if (orgEntry == null) {
+			orgEntry = new RsrcEntry();
+			orgEntry.parent = orgDir;
+			orgEntry.name = name;
+			orgEntry.entries = new LinkedList<>();
+			orgDir.entries.add(orgEntry);
+		} else if (org == null) {
+			orgDir.entries.remove(orgEntry);
+			return;
+		}
+		orgEntry.entries.clear();
+		RsrcEntry orgData = new RsrcEntry();
+		orgData.parent = orgEntry;
+		orgData.id = 1041;
+		orgData.data = org;
+		orgEntry.entries.add(orgData);
 	}
 
 	@Override
 	public void actionPerformed(ActionEvent ae) {
 		boolean hit;
 		byte[] orgData;
+		String newName;
 		switch (ae.getActionCommand()) {
 		case AC_LOAD:
 			if (promptSaveIfModified())
@@ -297,7 +411,7 @@ public class MainAL implements ActionListener, ListSelectionListener {
 			orgData = getOrgFile("Select ORG file to add");
 			if (orgData == null)
 				return;
-			String newName = DialogUtil.showInputDialog(window, "Enter new ORG name:", "Add ORG", "NEWDATA");
+			newName = DialogUtil.showInputDialog(window, "Enter new ORG name:", "Add ORG", "NEWDATA");
 			if (newName == null || newName.isEmpty())
 				break;
 			hit = false;
@@ -312,7 +426,7 @@ public class MainAL implements ActionListener, ListSelectionListener {
 			}
 			if (hit)
 				break;
-			// RsrcHandler.setResourceData(RSRC_ORG_TYPE, newName, RSRC_LANG_ID, orgData);
+			setOrgData(newName, orgData);
 			currentOrg = orgList.size();
 			orgList.add(currentOrg, num2TSCParam(currentOrg) + " - " + newName);
 			createOrgListModel();
@@ -324,7 +438,7 @@ public class MainAL implements ActionListener, ListSelectionListener {
 						JOptionPane.ERROR_MESSAGE);
 				break;
 			}
-			// RsrcHandler.setResourceData(RSRC_ORG_TYPE, orgList.remove(currentOrg), RSRC_LANG_ID, null);
+			setOrgData(orgList.remove(currentOrg).substring(7), null);
 			currentOrg--;
 			if (currentOrg < 0)
 				currentOrg = 0;
@@ -332,19 +446,19 @@ public class MainAL implements ActionListener, ListSelectionListener {
 			modified = true;
 			break;
 		case AC_EDIT:
-			String orgName = orgList.get(currentOrg);
-			orgName = orgName.substring(7);
-			int oldHash = orgName.hashCode();
-			orgName = DialogUtil.showInputDialog(window, "Enter new ORG name:", "Edit ORG", orgName);
-			if (orgName == null || orgName.isEmpty())
+			String oldName = orgList.get(currentOrg);
+			oldName = oldName.substring(7);
+			int oldHash = oldName.hashCode();
+			newName = DialogUtil.showInputDialog(window, "Enter new ORG name:", "Edit ORG", oldName);
+			if (newName == null || newName.isEmpty())
 				break;
-			String actualOrgName = num2TSCParam(currentOrg) + " - " + orgName;
+			String actualOrgName = num2TSCParam(currentOrg) + " - " + newName;
 			if (oldHash != actualOrgName.hashCode()) {
 				hit = false;
 				for (int i = 0; i < orgList.size(); i++) {
 					String otherName = orgList.get(i).substring(7);
-					if (orgName.equalsIgnoreCase(otherName)) {
-						JOptionPane.showMessageDialog(window, "The name \"" + orgName + "\" already exists!",
+					if (newName.equalsIgnoreCase(otherName)) {
+						JOptionPane.showMessageDialog(window, "The name \"" + newName + "\" already exists!",
 								"Edit ORG failure", JOptionPane.ERROR_MESSAGE);
 						hit = true;
 						break;
@@ -352,6 +466,10 @@ public class MainAL implements ActionListener, ListSelectionListener {
 				}
 				if (hit)
 					break;
+				RsrcEntry orgDir = rsrcHandler.root.getSubEntry("ORG");
+				RsrcEntry orgEntry = orgDir.getSubEntry(oldName);
+				if (orgEntry != null)
+					orgEntry.name = newName;
 				orgList.set(currentOrg, actualOrgName);
 				createOrgListModel();
 				modified = true;
@@ -361,11 +479,11 @@ public class MainAL implements ActionListener, ListSelectionListener {
 			orgData = getOrgFile("Select ORG file to replace with");
 			if (orgData == null)
 				break;
-			// RsrcHandler.setResourceData(RSRC_ORG_TYPE, orgList.get(currentOrg), RSRC_LANG_ID, orgData);
+			setOrgData(orgList.get(currentOrg).substring(7), orgData);
+			modified = true;
 			break;
 		case AC_EXTRACT:
-			// orgData = RsrcHandler.getResourceData(RSRC_ORG_TYPE, orgList.get(currentOrg));
-			orgData = tempPreventACEXTRACTErrors(); // TODO remove this
+			orgData = getOrgData(orgList.get(currentOrg).substring(7));
 			if (orgData == null) {
 				JOptionPane.showMessageDialog(window,
 						"The resource data for this ORG does not exist!\nPlease use the \"REPLACE\" option to add resource data for this ORG.",

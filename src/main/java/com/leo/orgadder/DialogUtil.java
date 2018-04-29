@@ -44,6 +44,13 @@ public class DialogUtil {
 					selName += "." + ext;
 					sel = new File(sel.getParentFile().getPath() + "/" + selName);
 				}
+				if (sel.exists()) {
+					int confirm = JOptionPane.showConfirmDialog(parent,
+							"File \"" + sel.getAbsolutePath() + "\"\nalready exists! Overwrite it?",
+							"Overwrite selected file?", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+					if (confirm != JOptionPane.OK_OPTION)
+						return null;
+				}
 				return sel;
 			}
 		} else {
@@ -84,9 +91,11 @@ public class DialogUtil {
 			String initialSelection, boolean canCancel) {
 		return showSelectionDialog(parent, title, selections.toArray(new String[] {}), initialSelection, canCancel);
 	}
-	
+
 	public static String showInputDialog(Component parent, Object message, String title, String initialSelectionValue) {
-		Object retObj = JOptionPane.showInputDialog(parent, message, title, JOptionPane.PLAIN_MESSAGE, null, null, initialSelectionValue);;
+		Object retObj = JOptionPane.showInputDialog(parent, message, title, JOptionPane.PLAIN_MESSAGE, null, null,
+				initialSelectionValue);
+		;
 		if (retObj == null)
 			return null;
 		if (!(retObj instanceof String))

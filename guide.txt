@@ -1,16 +1,7 @@
-Okay listen up it's pretty simple
-1. Load your EXE with OrgAdder
-2. Click on ORG+ to add a new entry
-3. Type in a name. Remember this name, you're gonna need it
-4. Press "OK", and save your EXE
-5. Now, open your EXE with Resource Hacker
-6. Open the "Action" menu and click on "Add Single Binary or Image Resource ..."
-7. Click on "Select File ..." and select your ORG file
-8. In the "Resource Type" field, type in "ORG"
-9. In the "Resource Name" field, type in the name you entered in OrgAdder
-10. In the "Resource Language" field, type in 1041 (Japanese, Default)
-10b. If the "Resource Language" field is disabled, skip this step and follow step 11b
-11. Click on "Add Resource". You should see your new ORG appear in the resource explorer!
-11b. Right click on the ORG, and click on "Change Language for this Resource ...". Type 1041 into the "Lang. ID" field
-12. Finally, save your EXE within Resource Hacker
+Okay listen up it's really simple
+1. Load your EXE
+2. Click on "ADD ORG" to add a new entry
+3. Select an ORG file to add
+4. Type in a name. Any name will do, though uppercase is recommended
+5. Press "OK", and save your EXE
 Your ORG is now ready to be used in-game!
