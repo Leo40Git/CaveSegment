@@ -34,24 +34,29 @@ public class DialogUtil {
 			dir = new File(System.getProperty("user.dir"));
 		fc.setCurrentDirectory(dir);
 		if (openOrSave) {
-			int ret = fc.showSaveDialog(parent);
-			if (ret == JFileChooser.APPROVE_OPTION) {
-				File sel = fc.getSelectedFile();
-				String selName = sel.getName();
-				String ext = filter.getExtensions()[0];
-				if (!selName.contains(".")
-						|| !selName.substring(selName.lastIndexOf(".") + 1, selName.length()).equalsIgnoreCase(ext)) {
-					selName += "." + ext;
-					sel = new File(sel.getParentFile().getPath() + "/" + selName);
-				}
-				if (sel.exists()) {
-					int confirm = JOptionPane.showConfirmDialog(parent,
-							"File \"" + sel.getAbsolutePath() + "\"\nalready exists! Overwrite it?",
-							"Overwrite selected file?", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
-					if (confirm != JOptionPane.OK_OPTION)
-						return null;
-				}
-				return sel;
+			while (true) {
+				int ret = fc.showSaveDialog(parent);
+				if (ret == JFileChooser.APPROVE_OPTION) {
+					File sel = fc.getSelectedFile();
+					String selName = sel.getName();
+					String ext = filter.getExtensions()[0];
+					if (!selName.contains(".") || !selName.substring(selName.lastIndexOf(".") + 1, selName.length())
+							.equalsIgnoreCase(ext)) {
+						selName += "." + ext;
+						sel = new File(sel.getParentFile().getPath() + "/" + selName);
+					}
+					if (sel.exists()) {
+						int confirm = JOptionPane.showConfirmDialog(parent,
+								"File \"" + sel.getAbsolutePath() + "\"\nalready exists! Overwrite it?",
+								"Overwrite selected file?", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+						if (confirm == JOptionPane.OK_OPTION)
+							return sel;
+						else
+							continue;
+					}
+					return sel;
+				} else
+					break;
 			}
 		} else {
 			int ret = fc.showOpenDialog(parent);

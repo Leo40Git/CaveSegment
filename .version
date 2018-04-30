@@ -1,22 +1,9 @@
-1.1
+1.1.1
+Hotfix 1.1.1
+- Improve save dialog
 Version 1.1
 - You can now add/replace/remove ORGs from within OrgAdder!
 - New options!
   - "REPLACE" - Replace ORG with new file
   - "EXTRACT" - Save ORG
 - Change guide to match new ability
-"Hotfix" 1.0.4
-- Add guide
-Hotfix 1.0.3
-- Disallow empty ORG names
-- Fix "Save EXE As..." not working
-- Add IDs next to ORG names
-Hotfix 1.0.2
-- App is no longer confused about what it is
-- Fix error when adding/editing ORGs
-Hotfix 1.0.1
-- This isn't OrgMaker!
-- Fix error when cancelling "add/edit ORG" dialogs
-- Disallow mutiple ORG names properly
-Version 1.0
-- Initial release
